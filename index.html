@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BDE ALLIANCE – BLACK GOLD EVENT</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+body{font-family:Arial;background:#111;color:white;margin:0;padding:18px}
+h1{text-align:center;color:#d4af37;font-size:25px}
+h2{color:#d4af37}
+select,input{padding:12px;border-radius:8px;border:1px solid #777;font-size:16px;max-width:100%}
+.player{background:#242424;padding:12px;margin:9px 0;border-radius:9px}
+.name{width:95%;box-sizing:border-box;margin-bottom:10px}
+button{padding:10px;border:0;border-radius:7px;margin:3px;font-weight:bold}
+.present{background:#168b43;color:white}
+.absent{background:#c83232;color:white}
+.none{background:#777;color:white}
+button:active{opacity:.7}
+#message{color:#d4af37;margin:12px 0}
+</style>
+</head>
+<body>
+
+<h1>BDE ALLIANCE</h1>
+<h2 style="text-align:center">BLACK GOLD EVENT</h2>
+
+<p>Select week:</p>
+<select id="week"></select>
+
+<div id="message">Connecting to database...</div>
+<div id="players"></div>
+
+<script>
+const SUPABASE_URL =
+'https://kooxjwytmrpjscoktmsh.supabase.co';
+
+const SUPABASE_KEY =
+'sb_publishable_bkD7uV9Ak2AR7OVdLZsFvQ_ky40q5ze';
+
+const db = supabase.createClient(
+  SUPABASE_URL,
+  SUPABASE_KEY
+);
+
+let playerList = [];
+let attendanceList = [];
+let currentWeek = null;
+
+async function start() {
+  try {
+    const {data: weeks, error: weekError} =
+      await db.from('event_weeks')
+      .select('*')
+      .order('week_number');
+
+    if (weekError) throw weekError;
+
+    const selector = document.getElementById('week');
+
+    weeks.forEach(w => {
+      const option = document.createElement('option');
+      option.value = w.id;
+      option.textContent = 'Week ' + w.week_number +
+        (w.name ? ' - ' + w.name : '');
+      selector.appendChild(option);
+    });
+
+    const {data: players, error: playerError} =
+      await db.from('players')
+      .select('*')
+      .eq('active', true)
+      .order('id');
+
+    if (playerError) throw playerError;
+
+    playerList = players;
+    currentWeek = selector.value;
+
+    selector.addEventListener('change', async () => {
+      currentWeek = selector.value;
+      await loadAttendance();
+    });
+
+    await loadAttendance();
+
+  } catch(error) {
+    document.getElementById('message').textContent =
+      'Database error: ' + error.message;
+  }
+}
+
+async function loadAttendance() {
+  const {data, error} = await db
+    .from('attendance')
+    .select('*')
+    .eq('week_id', currentWeek);
+
+  if(error) {
+    document.getElementById('message').textContent =
+      'Error: ' + error.message;
+    return;
+  }
+
+  attendanceList = data;
+  render();
+}
+
+function render() {
+  document.getElementById('message').textContent =
+    'Players: ' + playerList.length +
+    ' | Attendance saved in database';
+
+  const container = document.getElementById('players');
+  container.innerHTML = '';
+
+  playerList.forEach(player => {
+    const record = attendanceList.find(
+      a => a.player_id === player.id
+    );
+
+    const status = record ? record.status : 'NOT SELECTED';
+
+    const div = document.createElement('div');
+    div.className = 'player';
+
+    const name = document.createElement('input');
+    name.className = 'name';
+    name.value = player.name;
+
+    name.addEventListener('change', async () => {
+      const {error} = await db.from('players')
+        .update({name:name.value})
+        .eq('id', player.id);
+
+      if(error) alert(error.message);
+      else player.name = name.value;
+    });
+
+    div.appendChild(name);
+
+    const statuses = [
+      ['PRESENT','present'],
+      ['ABSENT','absent'],
+      ['NOT SELECTED','none']
+    ];
+
+    statuses.forEach(([label, style]) => {
+      const button = document.createElement('button');
+      button.textContent = label;
+      button.className = style;
+
+      if(status === label) {
+        button.style.outline = '3px solid white';
+      }
+
+      button.onclick = () => saveStatus(player.id,label);
+      div.appendChild(button);
+    });
+
+    container.appendChild(div);
+  });
+}
+
+async function saveStatus(playerId,status) {
+  const {error} = await db.from('attendance').upsert({
+    player_id: playerId,
+    week_id: currentWeek,
+    status: status
+  }, {
+    onConflict:'player_id,week_id'
+  });
+
+  if(error) {
+    alert('Save error: ' + error.message);
+    return;
+  }
+
+  await loadAttendance();
+}
+
+start();
+</script>
+</body>
+</html>
